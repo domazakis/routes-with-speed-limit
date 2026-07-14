@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Νόμιμος Χρόνος Διαδρομής</title>
+<meta name="description" content="Θεωρητικός χρόνος διαδρομής εντός Ελλάδας με συνεχή κίνηση ακριβώς στο νόμιμο όριο ταχύτητας.">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<style>
+  /* ============ Χρωματικό σύστημα: σκούρο navy + amber, flat ============ */
+  :root {
+    --bg:        #0b1626;  /* βασικό φόντο */
+    --panel:     #111f33;  /* κάρτες / πάνελ */
+    --panel-2:   #16263e;  /* δευτερεύον πάνελ, inputs */
+    --line:      #22344f;  /* διαχωριστικές γραμμές */
+    --ink:       #e8eef7;  /* κύριο κείμενο */
+    --ink-2:     #9db0c8;  /* δευτερεύον κείμενο */
+    --ink-3:     #64789a;  /* αχνό κείμενο */
+    --amber:     #fbbf24;  /* βασική λεπτομέρεια */
+    --amber-2:   #f59e0b;  /* πιο βαθύ amber (hover) */
+    --amber-ink: #1a1204;  /* κείμενο πάνω σε amber */
+    --danger:    #f87171;  /* σφάλματα */
+    --radius: 12px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 20px 16px 56px; }
+
+  header { padding: 8px 0 20px; }
+  header h1 { font-size: 1.35rem; font-weight: 700; letter-spacing: .01em; }
+  header h1 .dot { color: var(--amber); }
+  header p { color: var(--ink-2); font-size: .9rem; margin-top: 4px; max-width: 62ch; }
+
+  @media (min-width: 960px) {
+    .layout { display: grid; grid-template-columns: 400px 1fr; gap: 20px; align-items: start; }
+    .col-map { position: sticky; top: 16px; }
+    #map { height: calc(100vh - 130px) !important; min-height: 480px; }
+  }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 18px;
+    margin-bottom: 16px;
+  }
+  .card h2 {
+    font-size: .78rem; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .09em; color: var(--ink-3); margin-bottom: 14px;
+  }
+
+  /* ---- Φόρμα Από/Προς ---- */
+  .field { position: relative; margin-bottom: 12px; }
+  .field label {
+    display: block; font-size: .78rem; color: var(--ink-2); margin-bottom: 5px; font-weight: 600;
+  }
+  .field-row { display: flex; gap: 8px; }
+  .field input[type="text"] {
+    flex: 1; width: 100%;
+    background: var(--panel-2); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 10px;
+    padding: 11px 12px; font-size: .95rem; outline: none;
+    transition: border-color .15s;
+  }
+  .field input[type="text"]:focus { border-color: var(--amber); }
+  .field input::placeholder { color: var(--ink-3); }
+  .btn-pin {
+    flex: 0 0 auto; width: 44px; border-radius: 10px;
+    background: var(--panel-2); color: var(--ink-2);
+    border: 1px solid var(--line); cursor: pointer; font-size: 1.05rem;
+    transition: all .15s;
+  }
+  .btn-pin:hover { color: var(--amber); border-color: var(--amber); }
+  .btn-pin.active { background: var(--amber); color: var(--amber-ink); border-color: var(--amber); }
+
+  .suggest {
+    position: absolute; z-index: 1200; left: 0; right: 52px; top: 100%;
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px;
+    margin-top: 4px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,.45);
+    display: none;
+  }
+  .suggest.open { display: block; }
+  .suggest button {
+    display: block; width: 100%; text-align: left; background: none; border: none;
+    color: var(--ink); padding: 10px 12px; font-size: .88rem; cursor: pointer;
+    border-bottom: 1px solid var(--line);
+  }
+  .suggest button:last-child { border-bottom: none; }
+  .suggest button:hover, .suggest button:focus { background: rgba(251,191,36,.1); outline: none; }
+  .suggest .sub { display: block; color: var(--ink-3); font-size: .78rem; margin-top: 1px; }
+
+  .row-actions { display: flex; gap: 10px; margin-top: 14px; }
+  .btn {
+    border: none; border-radius: 10px; cursor: pointer;
+    font-size: .95rem; font-weight: 700; padding: 12px 16px;
+    transition: background .15s, transform .05s;
+  }
+  .btn:active { transform: translateY(1px); }
+  .btn-primary { flex: 1; background: var(--amber); color: var(--amber-ink); }
+  .btn-primary:hover { background: var(--amber-2); }
+  .btn-primary:disabled { background: var(--line); color: var(--ink-3); cursor: not-allowed; }
+  .btn-ghost {
+    flex: 0 0 auto; background: transparent; color: var(--ink-2);
+    border: 1px solid var(--line); font-weight: 600;
+  }
+  .btn-ghost:hover { color: var(--amber); border-color: var(--amber); }
+
+  .hint { font-size: .78rem; color: var(--ink-3); margin-top: 10px; }
+
+  /* ---- Κατάσταση / σφάλματα ---- */
+  .status { display: none; align-items: center; gap: 10px; font-size: .88rem; color: var(--ink-2); }
+  .status.show { display: flex; }
+  .spinner {
+    width: 16px; height: 16px; flex: 0 0 auto; border-radius: 50%;
+    border: 2px solid var(--line); border-top-color: var(--amber);
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .error { display: none; color: var(--danger); font-size: .88rem; line-height: 1.55; }
+  .error.show { display: block; }
+
+  /* ---- Χάρτης ---- */
+  #map {
+    height: 46vh; min-height: 320px; width: 100%;
+    border-radius: var(--radius); border: 1px solid var(--line);
+    background: #0e1a2c;
+  }
+  .leaflet-container { font: inherit; }
+  .marker-pin {
+    display: flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; border-radius: 50% 50% 50% 4px;
+    transform: rotate(-45deg);
+    font-weight: 800; font-size: .8rem; color: #0b1626;
+    border: 2px solid rgba(255,255,255,.85); box-shadow: 0 2px 8px rgba(0,0,0,.5);
+  }
+  .marker-pin span { transform: rotate(45deg); }
+  .legend-map {
+    display: flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 12px; font-size: .78rem; color: var(--ink-2);
+  }
+  .legend-map .it { display: inline-flex; align-items: center; gap: 6px; }
+  .legend-map .sw { width: 18px; height: 5px; border-radius: 3px; display: inline-block; }
+
+  /* ---- Εναλλακτικές ---- */
+  .alts { display: none; flex-wrap: wrap; gap: 8px; }
+  .alts.show { display: flex; }
+  .alt-chip {
+    background: var(--panel-2); color: var(--ink-2);
+    border: 1px solid var(--line); border-radius: 999px;
+    padding: 8px 14px; font-size: .85rem; font-weight: 600; cursor: pointer;
+    transition: all .15s;
+  }
+  .alt-chip:hover { border-color: var(--amber); }
+  .alt-chip.active { background: var(--amber); color: var(--amber-ink); border-color: var(--amber); }
+
+  /* ---- Αποτελέσματα ---- */
+  #results { display: none; }
+  #results.show { display: block; }
+  .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .stat {
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 10px; text-align: center;
+  }
+  .stat .v { font-size: 1.25rem; font-weight: 800; letter-spacing: .01em; font-variant-numeric: tabular-nums; }
+  .stat .v.big { color: var(--amber); }
+  .stat .k { font-size: .7rem; color: var(--ink-3); text-transform: uppercase; letter-spacing: .07em; margin-top: 3px; }
+  @media (max-width: 380px) { .stat .v { font-size: 1.05rem; } }
+
+  .rel { margin-top: 14px; }
+  .rel .rel-head { display: flex; justify-content: space-between; font-size: .8rem; color: var(--ink-2); margin-bottom: 6px; }
+  .rel .rel-head b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .rel-bar { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+  .rel-bar i { display: block; height: 100%; background: var(--amber); border-radius: 4px; }
+  .rel .note { font-size: .75rem; color: var(--ink-3); margin-top: 7px; line-height: 1.5; }
+
+  /* ---- Πίνακας ανάλυσης ---- */
+  table.brk { width: 100%; border-collapse: collapse; font-size: .87rem; }
+  table.brk th {
+    text-align: left; font-size: .7rem; text-transform: uppercase; letter-spacing: .07em;
+    color: var(--ink-3); font-weight: 600; padding: 0 8px 8px 0;
+  }
+  table.brk th.num, table.brk td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  table.brk td { padding: 7px 8px 7px 0; border-top: 1px solid var(--line); vertical-align: middle; }
+  .lim-tag {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 40px; padding: 2px 7px; border-radius: 7px;
+    font-weight: 800; font-size: .82rem; color: #0b1626;
+  }
+  .brk-bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; min-width: 60px; }
+  .brk-bar i { display: block; height: 100%; border-radius: 3px; }
+  td.bar-cell { width: 34%; }
+
+  footer { color: var(--ink-3); font-size: .75rem; margin-top: 8px; line-height: 1.6; }
+  footer a { color: var(--ink-2); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Νόμιμος Χρόνος Διαδρομής<span class="dot">.</span></h1>
+    <p>Θεωρητικός χρόνος από Α σε Β εντός Ελλάδας για επιβατηγό ΙΧ, με την υπόθεση συνεχούς κίνησης ακριβώς στο εκάστοτε νόμιμο όριο ταχύτητας — χωρίς κίνηση, φανάρια ή στάσεις.</p>
+  </header>
+
+  <div class="layout">
+    <div class="col-form">
+      <div class="card">
+        <h2>Διαδρομή</h2>
+        <div class="field">
+          <label for="inpA">Από</label>
+          <div class="field-row">
+            <input type="text" id="inpA" placeholder="π.χ. Χαροκόπου 21, Καλλιθέα" autocomplete="off">
+            <button class="btn-pin" id="pinA" title="Επιλογή σημείου Α στον χάρτη" aria-label="Επιλογή σημείου Α στον χάρτη">Α📍</button>
+          </div>
+          <div class="suggest" id="sugA"></div>
+        </div>
+        <div class="field">
+          <label for="inpB">Προς</label>
+          <div class="field-row">
+            <input type="text" id="inpB" placeholder="π.χ. Αεροδρόμιο Ελ. Βενιζέλος" autocomplete="off">
+            <button class="btn-pin" id="pinB" title="Επιλογή σημείου Β στον χάρτη" aria-label="Επιλογή σημείου Β στον χάρτη">Β📍</button>
+          </div>
+          <div class="suggest" id="sugB"></div>
+        </div>
+        <div class="row-actions">
+          <button class="btn btn-ghost" id="btnSwap" title="Εναλλαγή Α ↔ Β">Α ⇄ Β</button>
+          <button class="btn btn-primary" id="btnCalc">Υπολογισμός</button>
+        </div>
+        <div class="hint">Μπορείτε επίσης να ορίσετε τα σημεία με πάτημα στον χάρτη, αφού ενεργοποιήσετε το «Α📍» ή «Β📍».</div>
+        <div class="status" id="status" style="margin-top:12px"><span class="spinner"></span><span id="statusText"></span></div>
+        <div class="error" id="error" style="margin-top:12px" role="alert"></div>
+      </div>
+
+      <div class="card" id="altsCard" style="display:none">
+        <h2>Εναλλακτικές διαδρομές</h2>
+        <div class="alts show" id="alts"></div>
+      </div>
+
+      <div id="results">
+        <div class="card">
+          <h2>Αποτελέσματα</h2>
+          <div class="stat-grid">
+            <div class="stat"><div class="v" id="rDist">–</div><div class="k">Απόσταση</div></div>
+            <div class="stat"><div class="v big" id="rTime">–</div><div class="k">Θεωρητικός χρόνος</div></div>
+            <div class="stat"><div class="v" id="rAvg">–</div><div class="k">Μέση ταχύτητα</div></div>
+          </div>
+          <div class="rel">
+            <div class="rel-head"><span>Δείκτης αξιοπιστίας ορίων</span><b id="relPct">–</b></div>
+            <div class="rel-bar"><i id="relBar" style="width:0%"></i></div>
+            <div class="note" id="relNote"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Ανάλυση ανά όριο ταχύτητας</h2>
+          <div style="overflow-x:auto">
+            <table class="brk" id="brkTable">
+              <thead>
+                <tr><th>Όριο</th><th>Μερίδιο</th><th class="num">Απόσταση</th><th class="num">Χρόνος</th></tr>
+              </thead>
+              <tbody id="brkBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-map">
+      <div id="map"></div>
+      <div class="legend-map" id="legend"></div>
+      <footer>
+        Δεδομένα χάρτη: © συνεισφέροντες <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> ·
+        Δρομολόγηση: δημόσιος server <a href="https://project-osrm.org" target="_blank" rel="noopener">OSRM</a> ·
+        Όρια ταχύτητας: <a href="https://overpass-api.de" target="_blank" rel="noopener">Overpass API</a>.
+        Οι υπολογισμοί είναι θεωρητικοί και δεν αποτελούν προτροπή ή οδηγία οδήγησης· τα δεδομένα OSM ενδέχεται να είναι ελλιπή.
+      </footer>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+/* =====================================================================
+   ΠΙΝΑΚΑΣ ΡΥΘΜΙΣΕΩΝ — όλες οι αριθμητικές σταθερές της εφαρμογής.
+   Ελέγξτε / διορθώστε εδώ, χωρίς να αγγίξετε τη λογική παρακάτω.
+   ===================================================================== */
+const CONFIG = {
+
+  /* Ενεργή κατηγορία οχήματος. Η δομή είναι έτοιμη να δεχθεί κι άλλες
+     κατηγορίες (π.χ. "motosykleta", "fortigo") ως επιπλέον κλειδιά
+     στο CONFIG.ORIA_KOK — εκτός αντικειμένου στην v1. */
+  KATIGORIA_OXIMATOS: "epivatigo_ix",
+
+  /* Όρια ταχύτητας fallback κατά ΚΟΚ (Ν. 5209/2025, όπως ισχύει),
+     σε km/h, όταν το OSM δεν δίνει αξιοποιήσιμο maxspeed. */
+  ORIA_KOK: {
+    epivatigo_ix: {
+      MOTORWAY: 130,             // αυτοκινητόδρομος (highway=motorway)
+      TRUNK: 110,                // οδός ταχείας κυκλοφορίας (highway=trunk)
+      EKTOS_KATOIKIMENIS: 90,    // εκτός κατοικημένης περιοχής, υπόλοιπο δίκτυο
+      EKTOS_MI_ASFALTOSTROMENO: 40, // εκτός κατοικημένης, μη ασφαλτοστρωμένος δρόμος
+      ENTOS_MONODROMOS_1_LORIDA: 30, // εντός κατοικημένης: μονόδρομος με μία λωρίδα (ή χωρίς tag lanes)
+      ENTOS_ALLI_PERIPTOSI: 50,  // εντός κατοικημένης: κάθε άλλη περίπτωση
+      LIVING_STREET: 20,         // οδός ήπιας κυκλοφορίας — προς επιβεβαίωση από ΚΟΚ
+      MOTORWAY_LINK: 80,         // ράμπες/συνδετήριοι αυτοκινητοδρόμου — προς επιβεβαίωση από ΚΟΚ
+      TRUNK_LINK: 70,            // ράμπες/συνδετήριοι οδού ταχείας — προς επιβεβαίωση από ΚΟΚ
+      SERVICE: 30,               // βοηθητικές οδοί (highway=service) — παραδοχή εφαρμογής
+      DEFAULT: 50                // τελικό δίχτυ ασφαλείας όταν δεν βρεθεί way/κατηγορία
+    }
+  },
+
+  /* Τιμή maxspeed=50 που, όταν συνοδεύεται από τεκμαρτή αστική πηγή
+     (π.χ. source:maxspeed=GR:urban) και ΟΧΙ πινακίδα, αγνοείται ως
+     παρωχημένη (ο Ν. 5209/2025 άλλαξε το τεκμαρτό αστικό όριο). */
+  PAROXIMENO_TEKMARTO_ASTIKO: 50,
+
+  /* Τιμές του tag surface που θεωρούνται «μη ασφαλτοστρωμένος δρόμος». */
+  MI_ASFALTOSTROMENES_EPIFANEIES: [
+    "unpaved", "gravel", "dirt", "ground", "earth", "sand", "grass",
+    "compacted", "fine_gravel", "pebblestone", "mud", "rock", "woodchips"
+  ],
+
+  /* Τεκμαρτές (μη αριθμητικές) τιμές maxspeed που αντιστοιχίζονται
+     απευθείας σε όριο. Οι τιμές *urban* ΔΕΝ μπαίνουν εδώ επίτηδες:
+     περνούν στους κανόνες fallback με ένδειξη «εντός κατοικημένης». */
+  TEKMARTA_MAXSPEED: {
+    "GR:motorway": 130,
+    "GR:trunk": 110,
+    "GR:rural": 90
+  },
+
+  /* Ρυθμίσεις εξωτερικών υπηρεσιών (δωρεάν, δημόσιες). */
+  NOMINATIM_URL: "https://nominatim.openstreetmap.org",
+  OSRM_URL: "https://router.project-osrm.org/route/v1/driving",
+  OVERPASS_URL: "https://overpass-api.de/api/interpreter",
+  DEBOUNCE_MS: 1100,        // debounce autocomplete (>= 1 δευτ., όρος χρήσης Nominatim)
+  MAX_PROTASEIS: 6,         // πλήθος προτάσεων autocomplete
+  OVERPASS_TIMEOUT_S: 90,   // timeout του Overpass query σε δευτερόλεπτα
+
+  /* Χρωματική κλίμακα ορίων για χάρτη/υπόμνημα (αργό → γρήγορο).
+     Έχει ελεγχθεί για διακριτότητα σε αχρωματοψία πάνω στο navy φόντο·
+     κάθε χρήση συνοδεύεται πάντα και από την αριθμητική τιμή. */
+  XROMATA_ORIOU: [
+    { eos: 30,  xroma: "#f87171" },  // ≤ 30
+    { eos: 50,  xroma: "#fb923c" },  // 40–50
+    { eos: 70,  xroma: "#fde047" },  // 60–70
+    { eos: 90,  xroma: "#4ade80" },  // 80–90
+    { eos: 110, xroma: "#14b8a6" },  // 100–110
+    { eos: 999, xroma: "#38bdf8" }   // ≥ 120
+  ],
+
+  /* Αρχική θέση/εστίαση χάρτη (Ελλάδα). */
+  MAP_CENTER: [38.3, 23.8],
+  MAP_ZOOM: 7
+};
+
+/* ============================ Βοηθητικά ============================ */
+
+const $ = (id) => document.getElementById(id);
+
+function xromaOriou(orio) {
+  for (const b of CONFIG.XROMATA_ORIOU) if (orio <= b.eos) return b.xroma;
+  return CONFIG.XROMATA_ORIOU[CONFIG.XROMATA_ORIOU.length - 1].xroma;
+}
+
+function morfChronos(sec) {
+  sec = Math.round(sec);
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+  const p = (n) => String(n).padStart(2, "0");
+  return h > 0 ? `${h}:${p(m)}:${p(s)}` : `${m}:${p(s)}`;
+}
+
+function morfApostasi(m) {
+  return m >= 1000
+    ? (m / 1000).toLocaleString("el-GR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + " χλμ"
+    : Math.round(m) + " μ";
+}
+
+function deixeStatus(msg) {
+  $("status").classList.toggle("show", !!msg);
+  $("statusText").textContent = msg || "";
+}
+function deixeSfalma(msg) {
+  $("error").classList.toggle("show", !!msg);
+  $("error").textContent = msg || "";
+}
+
+/* ===================== Ανάλυση tags maxspeed OSM ===================== */
+
+/* Επιστρέφει αριθμητικό όριο σε km/h ή null (υποστηρίζει και "50 mph"). */
+function parseMaxspeedArithmitiko(v) {
+  if (!v) return null;
+  const s = String(v).trim();
+  let m = s.match(/^(\d+(?:\.\d+)?)\s*mph$/i);
+  if (m) return Math.round(parseFloat(m[1]) * 1.609344);
+  m = s.match(/^(\d+(?:\.\d+)?)/);
+  if (m && /^\d/.test(s)) return Math.round(parseFloat(m[1]));
+  return null;
+}
+
+/* ============ Απόδοση ορίου ταχύτητας σε ένα way (τμήμα) ============ */
+/* Επιστρέφει: { orio, pigi: "sign"|"tag"|"fallback", avevaio: boolean } */
+function orioGiaWay(tags) {
+  const K = CONFIG.ORIA_KOK[CONFIG.KATIGORIA_OXIMATOS];
+  if (!tags) return { orio: K.DEFAULT, pigi: "fallback", avevaio: true };
+
+  const hw = tags.highway || "";
+  const src = ((tags["source:maxspeed"] || "") + " " + (tags["maxspeed:type"] || "")).trim();
+  const einaiPinakida = /sign/i.test(src);
+  const tekmartoAstiko = /urban/i.test(src);
+  const arith = parseMaxspeedArithmitiko(tags.maxspeed);
+
+  /* Βήμα 2 (προηγείται ελέγχου του βήματος 1): παρωχημένο τεκμαρτό «50»
+     με αστική πηγή και χωρίς πινακίδα → αγνοείται, πάμε σε fallback. */
+  const paroximeno = (arith === CONFIG.PAROXIMENO_TEKMARTO_ASTIKO) && tekmartoAstiko && !einaiPinakida;
+
+  /* Βήμα 1: ρητό αριθμητικό όριο (πινακίδα ή χωρίς ένδειξη πηγής). */
+  if (arith !== null && !paroximeno) {
+    return { orio: arith, pigi: einaiPinakida ? "sign" : "tag", avevaio: false };
+  }
+
+  /* Τεκμαρτές μη αριθμητικές τιμές maxspeed (π.χ. GR:rural). */
+  if (arith === null && tags.maxspeed && CONFIG.TEKMARTA_MAXSPEED[tags.maxspeed] !== undefined) {
+    return { orio: CONFIG.TEKMARTA_MAXSPEED[tags.maxspeed], pigi: "fallback", avevaio: false };
+  }
+
+  /* Βήμα 3: fallback κατά ΚΟΚ βάσει κατηγορίας οδού. */
+  if (hw === "motorway")      return { orio: K.MOTORWAY, pigi: "fallback", avevaio: false };
+  if (hw === "motorway_link") return { orio: K.MOTORWAY_LINK, pigi: "fallback", avevaio: false };
+  if (hw === "trunk")         return { orio: K.TRUNK, pigi: "fallback", avevaio: false };
+  if (hw === "trunk_link")    return { orio: K.TRUNK_LINK, pigi: "fallback", avevaio: false };
+  if (hw === "living_street") return { orio: K.LIVING_STREET, pigi: "fallback", avevaio: false };
+  if (hw === "service")       return { orio: K.SERVICE, pigi: "fallback", avevaio: false };
+
+  /* Βήμα 4: ευρετική «εντός κατοικημένης περιοχής». */
+  let entos, avevaio = false;
+  const astikoMaxspeed = /urban/i.test(String(tags.maxspeed || ""));
+  if (tekmartoAstiko || astikoMaxspeed) {
+    entos = true;                                  // (α) πηγή δηλώνει urban
+  } else if (hw === "residential") {
+    entos = true;                                  // (β) κατοικημένη γειτονιά
+  } else {
+    entos = false;                                 // (γ) θεωρείται εκτός…
+    if (["unclassified", "tertiary", "secondary", "primary",
+         "primary_link", "secondary_link", "tertiary_link"].includes(hw)) {
+      avevaio = true;                              // …αλλά σημειώνεται ως αβέβαιο
+    }
+  }
+
+  if (!entos) {
+    const surface = (tags.surface || "").toLowerCase();
+    if (CONFIG.MI_ASFALTOSTROMENES_EPIFANEIES.includes(surface)) {
+      return { orio: K.EKTOS_MI_ASFALTOSTROMENO, pigi: "fallback", avevaio };
+    }
+    return { orio: K.EKTOS_KATOIKIMENIS, pigi: "fallback", avevaio };
+  }
+
+  /* Εντός κατοικημένης: μονόδρομος με μία λωρίδα (ή χωρίς tag lanes) → 30. */
+  const monodromos = ["yes", "1", "-1", "true"].includes(String(tags.oneway || "").toLowerCase());
+  const lorides = parseInt(tags.lanes, 10);
+  const miaLorida = isNaN(lorides) || lorides <= 1;
+  if (monodromos && miaLorida) return { orio: K.ENTOS_MONODROMOS_1_LORIDA, pigi: "fallback", avevaio };
+  return { orio: K.ENTOS_ALLI_PERIPTOSI, pigi: "fallback", avevaio };
+}
+
+/* ======================= Κατάσταση εφαρμογής ======================= */
+
+const state = {
+  simeia: { A: null, B: null },   // { lat, lon, label }
+  pickMode: null,                 // "A" | "B" | null
+  markers: { A: null, B: null },
+  routeLayers: [],
+  osrmRoutes: [],                 // εναλλακτικές OSRM
+  overpassCache: { key: null, edgeMap: null, nodeWays: null },
+  epilegmeni: 0
+};
+
+/* =============================== Χάρτης =============================== */
+
+const map = L.map("map", { zoomControl: true }).setView(CONFIG.MAP_CENTER, CONFIG.MAP_ZOOM);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 19,
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">Συνεισφέροντες OpenStreetMap</a>'
+}).addTo(map);
+
+function markerIcon(gramma) {
+  const bg = gramma === "Α" ? "#fbbf24" : "#38bdf8";
+  return L.divIcon({
+    className: "",
+    html: `<div class="marker-pin" style="background:${bg}"><span>${gramma}</span></div>`,
+    iconSize: [28, 28], iconAnchor: [4, 26]
+  });
+}
+
+function valeSimeio(poio, lat, lon, label) {
+  state.simeia[poio] = { lat, lon, label };
+  const inp = poio === "A" ? $("inpA") : $("inpB");
+  if (label) inp.value = label;
+  if (state.markers[poio]) map.removeLayer(state.markers[poio]);
+  state.markers[poio] = L.marker([lat, lon], { icon: markerIcon(poio === "A" ? "Α" : "Β") }).addTo(map);
+}
+
+map.on("click", async (e) => {
+  if (!state.pickMode) return;
+  const poio = state.pickMode;
+  const { lat, lng } = e.latlng;
+  const proxeiro = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+  valeSimeio(poio, lat, lng, `Σημείο στον χάρτη (${proxeiro})`);
+  setPickMode(null);
+  /* Αντίστροφη γεωκωδικοποίηση για φιλική ετικέτα (best effort). */
+  try {
+    const r = await fetch(`${CONFIG.NOMINATIM_URL}/reverse?format=jsonv2&lat=${lat}&lon=${lng}&accept-language=el&zoom=17`,
+      { headers: { "Accept": "application/json" } });
+    if (r.ok) {
+      const j = await r.json();
+      if (j && j.display_name) valeSimeio(poio, lat, lng, syntomiOnomasia(j));
+    }
+  } catch (_) { /* κρατάμε τις συντεταγμένες ως ετικέτα */ }
+});
+
+function setPickMode(poio) {
+  state.pickMode = poio;
+  $("pinA").classList.toggle("active", poio === "A");
+  $("pinB").classList.toggle("active", poio === "B");
+  map.getContainer().style.cursor = poio ? "crosshair" : "";
+}
+$("pinA").addEventListener("click", () => setPickMode(state.pickMode === "A" ? null : "A"));
+$("pinB").addEventListener("click", () => setPickMode(state.pickMode === "B" ? null : "B"));
+
+/* Υπόμνημα χρωμάτων ορίων. */
+(function ftiaxeYpomnima() {
+  const l = $("legend");
+  const labels = ["≤ 30", "40–50", "60–70", "80–90", "100–110", "≥ 120"];
+  l.innerHTML = CONFIG.XROMATA_ORIOU.map((b, i) =>
+    `<span class="it"><span class="sw" style="background:${b.xroma}"></span>${labels[i]} km/h</span>`
+  ).join("");
+})();
+
+/* ====================== Autocomplete (Nominatim) ====================== */
+
+function syntomiOnomasia(j) {
+  /* Σύντομη, ευανάγνωστη ετικέτα από απάντηση Nominatim. */
+  const a = j.address || {};
+  const meri = [
+    j.name || a.road || "",
+    a.house_number || "",
+    a.suburb || a.village || a.town || a.city || a.municipality || ""
+  ].filter(Boolean);
+  const s = meri.join(" ").replace(/\s+/g, " ").trim();
+  return s || j.display_name.split(",").slice(0, 3).join(",");
+}
+
+function stiseAutocomplete(inpId, sugId, poio) {
+  const inp = $(inpId), box = $(sugId);
+  let timer = null, teleutaio = "";
+
+  inp.addEventListener("input", () => {
+    state.simeia[poio] = null;      // η χειροκίνητη αλλαγή ακυρώνει το σημείο
+    clearTimeout(timer);
+    const q = inp.value.trim();
+    if (q.length < 3) { box.classList.remove("open"); return; }
+    timer = setTimeout(async () => {
+      if (q === teleutaio) return;
+      teleutaio = q;
+      try {
+        const url = `${CONFIG.NOMINATIM_URL}/search?format=jsonv2&countrycodes=gr&accept-language=el` +
+                    `&addressdetails=1&limit=${CONFIG.MAX_PROTASEIS}&q=${encodeURIComponent(q)}`;
+        const r = await fetch(url, { headers: { "Accept": "application/json" } });
+        if (!r.ok) throw new Error("nominatim " + r.status);
+        const js = await r.json();
+        box.innerHTML = "";
+        if (!js.length) {
+          box.innerHTML = `<button type="button" disabled style="color:var(--ink-3)">Δεν βρέθηκαν αποτελέσματα στην Ελλάδα.</button>`;
+        } else {
+          for (const j of js) {
+            const b = document.createElement("button");
+            b.type = "button";
+            b.innerHTML = `${syntomiOnomasia(j)}<span class="sub">${j.display_name}</span>`;
+            b.addEventListener("click", () => {
+              valeSimeio(poio, parseFloat(j.lat), parseFloat(j.lon), syntomiOnomasia(j));
+              box.classList.remove("open");
+              map.setView([j.lat, j.lon], 13);
+            });
+            box.appendChild(b);
+          }
+        }
+        box.classList.add("open");
+      } catch (_) {
+        box.innerHTML = `<button type="button" disabled style="color:var(--ink-3)">Η υπηρεσία αναζήτησης (Nominatim) δεν αποκρίθηκε. Δοκιμάστε ξανά σε λίγο.</button>`;
+        box.classList.add("open");
+      }
+    }, CONFIG.DEBOUNCE_MS);
+  });
+
+  document.addEventListener("click", (e) => {
+    if (!box.contains(e.target) && e.target !== inp) box.classList.remove("open");
+  });
+}
+stiseAutocomplete("inpA", "sugA", "A");
+stiseAutocomplete("inpB", "sugB", "B");
+
+/* Εναλλαγή Α ↔ Β. */
+$("btnSwap").addEventListener("click", () => {
+  const tA = $("inpA").value, tB = $("inpB").value;
+  $("inpA").value = tB; $("inpB").value = tA;
+  const sA = state.simeia.A;
+  state.simeia.A = state.simeia.B; state.simeia.B = sA;
+  for (const poio of ["A", "B"]) {
+    if (state.markers[poio]) { map.removeLayer(state.markers[poio]); state.markers[poio] = null; }
+    const s = state.simeia[poio];
+    if (s) state.markers[poio] = L.marker([s.lat, s.lon], { icon: markerIcon(poio === "A" ? "Α" : "Β") }).addTo(map);
+  }
+  if (state.osrmRoutes.length) ypologise();   // επανυπολογισμός με νέα φορά
+});
+
+/* ===================== Κύριος υπολογισμός διαδρομής ===================== */
+
+$("btnCalc").addEventListener("click", ypologise);
+
+async function ypologise() {
+  deixeSfalma("");
+  const A = state.simeia.A, B = state.simeia.B;
+  if (!A || !B) {
+    deixeSfalma("Ορίστε και τα δύο σημεία: επιλέξτε από τις προτάσεις της αναζήτησης ή πατήστε στον χάρτη (κουμπιά Α📍 / Β📍).");
+    return;
+  }
+  $("btnCalc").disabled = true;
+  $("results").classList.remove("show");
+  $("altsCard").style.display = "none";
+
+  try {
+    /* 1. Διαδρομή από OSRM (με εναλλακτικές, nodes και αποστάσεις ανά τμήμα). */
+    deixeStatus("Υπολογισμός διαδρομής (δημόσιος server OSRM)…");
+    const url = `${CONFIG.OSRM_URL}/${A.lon},${A.lat};${B.lon},${B.lat}` +
+                `?overview=full&geometries=geojson&annotations=true&alternatives=true&steps=false`;
+    let osrm;
+    try {
+      const r = await fetch(url);
+      osrm = await r.json();
+    } catch (e) {
+      throw new Error("Ο δημόσιος server δρομολόγησης (OSRM) δεν αποκρίθηκε. Πρόκειται για δωρεάν δημόσια υπηρεσία που ενίοτε υπερφορτώνεται — δοκιμάστε ξανά σε λίγα λεπτά.");
+    }
+    if (osrm.code !== "Ok" || !osrm.routes || !osrm.routes.length) {
+      throw new Error("Δεν βρέθηκε οδική διαδρομή μεταξύ των δύο σημείων. Ελέγξτε ότι και τα δύο σημεία βρίσκονται κοντά σε δρόμο εντός Ελλάδας.");
+    }
+    state.osrmRoutes = osrm.routes;
+
+    /* 2. Όρια ταχύτητας από Overpass — ΕΝΑ ομαδοποιημένο request για όλα τα
+          nodes όλων των εναλλακτικών, με cache όσο η διαδρομή δεν αλλάζει. */
+    const cacheKey = `${A.lon},${A.lat};${B.lon},${B.lat}`;
+    if (state.overpassCache.key !== cacheKey) {
+      deixeStatus("Ανάκτηση ορίων ταχύτητας (Overpass API)…");
+      const olaNodes = new Set();
+      for (const rt of osrm.routes)
+        for (const leg of rt.legs)
+          for (const n of leg.annotation.nodes) olaNodes.add(n);
+
+      const q = `[out:json][timeout:${CONFIG.OVERPASS_TIMEOUT_S}];` +
+                `node(id:${[...olaNodes].join(",")});` +
+                `way(bn)["highway"];out body;`;
+      let ov;
+      try {
+        const r = await fetch(CONFIG.OVERPASS_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: "data=" + encodeURIComponent(q)
+        });
+        if (!r.ok) throw new Error("overpass " + r.status);
+        ov = await r.json();
+      } catch (e) {
+        throw new Error("Η υπηρεσία Overpass API δεν αποκρίθηκε. Πρόκειται για δωρεάν δημόσια υπηρεσία που ενίοτε υπερφορτώνεται — δοκιμάστε ξανά σε λίγα λεπτά.");
+      }
+
+      /* Ευρετήριο ακμών: «nodeA_nodeB» → way, για άμεση αντιστοίχιση τμημάτων. */
+      const edgeMap = new Map(), nodeWays = new Map();
+      for (const el of ov.elements) {
+        if (el.type !== "way" || !el.nodes) continue;
+        for (let i = 0; i < el.nodes.length; i++) {
+          const n = el.nodes[i];
+          if (!nodeWays.has(n)) nodeWays.set(n, []);
+          nodeWays.get(n).push(el);
+          if (i > 0) {
+            edgeMap.set(el.nodes[i - 1] + "_" + n, el);
+            edgeMap.set(n + "_" + el.nodes[i - 1], el);
+          }
+        }
+      }
+      state.overpassCache = { key: cacheKey, edgeMap, nodeWays };
+    }
+
+    /* 3. Εναλλακτικές + εμφάνιση επιλεγμένης. */
+    state.epilegmeni = 0;
+    ftiaxeAlts();
+    deixeDiadromi(0);
+    deixeStatus("");
+  } catch (e) {
+    deixeStatus("");
+    deixeSfalma(e.message || "Απρόσμενο σφάλμα. Δοκιμάστε ξανά.");
+  } finally {
+    $("btnCalc").disabled = false;
+  }
+}
+
+function ftiaxeAlts() {
+  const box = $("alts");
+  box.innerHTML = "";
+  if (state.osrmRoutes.length < 2) { $("altsCard").style.display = "none"; return; }
+  state.osrmRoutes.forEach((rt, i) => {
+    const b = document.createElement("button");
+    b.className = "alt-chip" + (i === state.epilegmeni ? " active" : "");
+    b.textContent = `Διαδρομή ${i + 1} · ${morfApostasi(rt.distance)}`;
+    b.addEventListener("click", () => {
+      state.epilegmeni = i;
+      [...box.children].forEach((c, j) => c.classList.toggle("active", j === i));
+      deixeDiadromi(i);
+    });
+    box.appendChild(b);
+  });
+  $("altsCard").style.display = "block";
+}
+
+/* ============ Ανάλυση επιλεγμένης διαδρομής + απόδοση UI ============ */
+
+function analyseDiadromi(rt) {
+  const { edgeMap, nodeWays } = state.overpassCache;
+  const K = CONFIG.ORIA_KOK[CONFIG.KATIGORIA_OXIMATOS];
+  const tmimata = [];   // { apo:[lat,lon], eos:[lat,lon], mikos, orio, pigi, avevaio, onoma }
+  let teleutaioWay = null;
+
+  const coords = rt.geometry.coordinates; // [lon,lat], 1-1 με τα nodes σε overview=full
+  let deiktisCoord = 0;
+
+  for (const leg of rt.legs) {
+    const nodes = leg.annotation.nodes, dists = leg.annotation.distance;
+    for (let i = 0; i < dists.length; i++) {
+      const mikos = dists[i];
+      const cA = coords[Math.min(deiktisCoord + i, coords.length - 1)];
+      const cB = coords[Math.min(deiktisCoord + i + 1, coords.length - 1)];
+
+      /* Εύρεση way του τμήματος: πρώτα ως ακμή, μετά ως κοινό way των δύο
+         nodes, αλλιώς το τελευταίο γνωστό way. */
+      let way = edgeMap.get(nodes[i] + "_" + nodes[i + 1]) || null;
+      if (!way) {
+        const la = nodeWays.get(nodes[i]) || [], lb = nodeWays.get(nodes[i + 1]) || [];
+        way = la.find(w => lb.includes(w)) || teleutaioWay;
+      }
+      if (way) teleutaioWay = way;
+
+      const ap = way ? orioGiaWay(way.tags) : { orio: K.DEFAULT, pigi: "fallback", avevaio: true };
+      tmimata.push({
+        apo: [cA[1], cA[0]], eos: [cB[1], cB[0]], mikos,
+        orio: ap.orio, pigi: ap.pigi, avevaio: ap.avevaio,
+        onoma: way && way.tags && way.tags.name ? way.tags.name : ""
+      });
+    }
+    deiktisCoord += dists.length;
+  }
+  return tmimata;
+}
+
+function deixeDiadromi(idx) {
+  const rt = state.osrmRoutes[idx];
+  const tmimata = analyseDiadromi(rt);
+
+  /* --- Σύνολα --- */
+  let dist = 0, xronos = 0, distTag = 0, distAvevaio = 0;
+  const anaOrio = new Map();
+  for (const t of tmimata) {
+    dist += t.mikos;
+    const dt = t.mikos / (t.orio / 3.6);
+    xronos += dt;
+    if (t.pigi !== "fallback") distTag += t.mikos;
+    if (t.avevaio) distAvevaio += t.mikos;
+    if (!anaOrio.has(t.orio)) anaOrio.set(t.orio, { mikos: 0, xronos: 0 });
+    const a = anaOrio.get(t.orio);
+    a.mikos += t.mikos; a.xronos += dt;
+  }
+
+  /* --- Χάρτης: πολυγραμμές ανά συνεχόμενο ίδιο όριο --- */
+  for (const l of state.routeLayers) map.removeLayer(l);
+  state.routeLayers = [];
+  let run = null;
+  const kleiseRun = () => {
+    if (!run) return;
+    const pl = L.polyline(run.simeia, { color: xromaOriou(run.orio), weight: 5, opacity: 0.95 }).addTo(map);
+    pl.bindTooltip(
+      `${run.onoma ? run.onoma + " · " : ""}όριο ${run.orio} km/h · ` +
+      (run.pigi === "fallback" ? "τεκμαρτό (ΚΟΚ)" : run.pigi === "sign" ? "πινακίδα (OSM)" : "tag OSM"),
+      { sticky: true });
+    state.routeLayers.push(pl);
+    run = null;
+  };
+  for (const t of tmimata) {
+    if (run && run.orio === t.orio && run.pigi === t.pigi && run.onoma === t.onoma) {
+      run.simeia.push(t.eos);
+    } else {
+      kleiseRun();
+      run = { orio: t.orio, pigi: t.pigi, onoma: t.onoma, simeia: [t.apo, t.eos] };
+    }
+  }
+  kleiseRun();
+  if (state.routeLayers.length) {
+    map.fitBounds(L.featureGroup(state.routeLayers).getBounds(), { padding: [30, 30] });
+  }
+
+  /* --- Κάρτα αποτελεσμάτων --- */
+  $("rDist").textContent = morfApostasi(dist);
+  $("rTime").textContent = morfChronos(xronos);
+  $("rAvg").textContent = xronos > 0 ? Math.round(dist / xronos * 3.6) + " km/h" : "–";
+
+  const pct = dist > 0 ? (distTag / dist * 100) : 0;
+  $("relPct").textContent = pct.toLocaleString("el-GR", { maximumFractionDigits: 0 }) + "%";
+  $("relBar").style.width = pct.toFixed(1) + "%";
+  let note = `Το ${pct.toFixed(0)}% της απόστασης βασίστηκε σε καταγεγραμμένο όριο του OSM (tag maxspeed)· το υπόλοιπο σε τεκμαρτά όρια του ΚΟΚ (Ν. 5209/2025).`;
+  if (distAvevaio > 0) {
+    note += ` Επιπλέον, για το ${(distAvevaio / dist * 100).toFixed(0)}% της απόστασης η ένδειξη «εκτός κατοικημένης» είναι αβέβαιη (ευρετική).`;
+  }
+  $("relNote").textContent = note;
+
+  /* --- Πίνακας ανάλυσης ανά όριο --- */
+  const megisto = Math.max(...[...anaOrio.values()].map(a => a.mikos));
+  const seires = [...anaOrio.entries()].sort((a, b) => b[0] - a[0]);
+  $("brkBody").innerHTML = seires.map(([orio, a]) => `
+    <tr>
+      <td><span class="lim-tag" style="background:${xromaOriou(orio)}">${orio}</span></td>
+      <td class="bar-cell"><div class="brk-bar"><i style="width:${(a.mikos / megisto * 100).toFixed(1)}%;background:${xromaOriou(orio)}"></i></div></td>
+      <td class="num">${morfApostasi(a.mikos)}</td>
+      <td class="num">${morfChronos(a.xronos)}</td>
+    </tr>`).join("");
+
+  $("results").classList.add("show");
+}
+
+/* Έκθεση για δοκιμές/αποσφαλμάτωση από την κονσόλα. */
+window.App = { CONFIG, state, valeSimeio, ypologise, orioGiaWay, parseMaxspeedArithmitiko };
+</script>
+</body>
+</html>
