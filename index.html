@@ -5,6 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Νόμιμος Χρόνος Διαδρομής</title>
 <meta name="description" content="Θεωρητικός χρόνος διαδρομής εντός Ελλάδας με συνεχή κίνηση ακριβώς στο νόμιμο όριο ταχύτητας.">
+
+<!-- ============ PWA («στρώμα» εγκατάστασης — σχετικές διαδρομές) ============ -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0b1626">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Χρόνος">
+
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 <style>
@@ -841,6 +852,21 @@ function deixeDiadromi(idx) {
 
 /* Έκθεση για δοκιμές/αποσφαλμάτωση από την κονσόλα. */
 window.App = { CONFIG, state, valeSimeio, ypologise, orioGiaWay, parseMaxspeedArithmitiko };
+</script>
+
+<!-- ===================== Register service worker (PWA) =====================
+     Ξεχωριστό, ανεξάρτητο block ώστε το «στρώμα» εγκατάστασης να μην εξαρτάται
+     από τη λογική της εφαρμογής. Σχετική διαδρομή + scope «./» ώστε να δουλεύει
+     μέσα από τον υποφάκελο /routes-with-speed-limit/. -->
+<script>
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", function () {
+    navigator.serviceWorker.register("sw.js", { scope: "./" })["catch"](function () {
+      /* Η εγκατάσταση PWA είναι προαιρετική· σε αποτυχία η εφαρμογή
+         λειτουργεί κανονικά ως απλή ιστοσελίδα. */
+    });
+  });
+}
 </script>
 </body>
 </html>
